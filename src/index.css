@@ -276,6 +276,26 @@ body {
   text-align: center;
 }
 
+/* ---------- error banner ---------- */
+
+.banner {
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.banner--error {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+  border: 1px solid rgba(220, 38, 38, 0.25);
+}
+
+[data-theme='dark'] .banner--error {
+  color: #fca5a5;
+  background: rgba(220, 38, 38, 0.16);
+}
+
 /* ---------- topbar ---------- */
 
 .topbar {

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { DayData, Plan, Priority, Profile, Task, Theme } from './types'
 import { emptyDay } from './types'
-import { uid, useLocalStorage } from './useLocalStorage'
+import * as api from './lib/api'
 import './index.css'
 
 /* ---------- date helpers ---------- */
@@ -40,49 +40,129 @@ function shiftDay(key: string, delta: number): string {
 
 export default function App() {
   const todayKey = toKey(new Date())
-  const [profile, setProfile] = useLocalStorage<Profile>('td.profile', { name: '' })
-  const [theme, setTheme] = useLocalStorage<Theme>('td.theme', 'light')
+  const [profile, setProfile] = useState<Profile>({ name: '' })
+  const [theme, setTheme] = useState<Theme>('light')
   const [activeDate, setActiveDate] = useState(todayKey)
-  const [days, setDays] = useLocalStorage<Record<string, DayData>>('td.days', {})
+  const [day, setDay] = useState<DayData>(emptyDay)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   /* reflect the active theme onto <html> so tokens cascade to everything */
   useEffect(() => {
     document.documentElement.dataset.theme = theme
   }, [theme])
 
-  const day: DayData = days[activeDate] ?? emptyDay()
+  /* load global settings (profile + theme) once on mount */
+  useEffect(() => {
+    let alive = true
+    api
+      .fetchSettings()
+      .then((s) => {
+        if (!alive) return
+        setProfile({ name: s.name })
+        setTheme(s.theme)
+      })
+      .catch((e) => alive && setError(String(e?.message ?? e)))
+    return () => {
+      alive = false
+    }
+  }, [])
 
-  const updateDay = (patch: Partial<DayData> | ((d: DayData) => DayData)) => {
-    setDays((prev) => {
-      const current = prev[activeDate] ?? emptyDay()
-      const next = typeof patch === 'function' ? patch(current) : { ...current, ...patch }
-      return { ...prev, [activeDate]: next }
+  /* load the active day whenever it changes */
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    api
+      .fetchDay(activeDate)
+      .then((d) => {
+        if (!alive) return
+        setDay(d)
+        setError(null)
+      })
+      .catch((e) => alive && setError(String(e?.message ?? e)))
+      .finally(() => alive && setLoading(false))
+    return () => {
+      alive = false
+    }
+  }, [activeDate])
+
+  /* settings mutations (optimistic, persisted in background) */
+  const updateName = useCallback((name: string) => {
+    setProfile({ name })
+    api.saveSettings({ name }).catch((e) => setError(String(e?.message ?? e)))
+  }, [])
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => {
+      const next: Theme = prev === 'light' ? 'dark' : 'light'
+      api.saveSettings({ theme: next }).catch((e) => setError(String(e?.message ?? e)))
+      return next
     })
-  }
+  }, [])
+
+  /* goal / reflection: optimistic local update, debounce-free persist on change */
+  const saveGoal = useCallback(
+    (goal: string) => {
+      setDay((d) => ({ ...d, goal }))
+      api.saveDayField(activeDate, { goal }).catch((e) => setError(String(e?.message ?? e)))
+    },
+    [activeDate],
+  )
+  const saveReflection = useCallback(
+    (reflection: string) => {
+      setDay((d) => ({ ...d, reflection }))
+      api
+        .saveDayField(activeDate, { reflection })
+        .catch((e) => setError(String(e?.message ?? e)))
+    },
+    [activeDate],
+  )
 
   /* task actions */
-  const addTask = (title: string, priority: Priority) => {
-    const t: Task = { id: uid(), title, priority, done: false, createdAt: Date.now() }
-    updateDay((d) => ({ ...d, tasks: [t, ...d.tasks] }))
-  }
-  const toggleTask = (id: string) =>
-    updateDay((d) => ({
-      ...d,
-      tasks: d.tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)),
-    }))
-  const removeTask = (id: string) =>
-    updateDay((d) => ({ ...d, tasks: d.tasks.filter((t) => t.id !== id) }))
+  const addTask = useCallback(
+    async (title: string, priority: Priority) => {
+      try {
+        const t = await api.createTask(activeDate, title, priority)
+        setDay((d) => ({ ...d, tasks: [t, ...d.tasks] }))
+      } catch (e) {
+        setError(String((e as Error)?.message ?? e))
+      }
+    },
+    [activeDate],
+  )
+  const toggleTask = useCallback((id: string) => {
+    setDay((d) => {
+      const target = d.tasks.find((t) => t.id === id)
+      if (target) {
+        api.setTaskDone(id, !target.done).catch((e) => setError(String(e?.message ?? e)))
+      }
+      return { ...d, tasks: d.tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)) }
+    })
+  }, [])
+  const removeTask = useCallback((id: string) => {
+    setDay((d) => ({ ...d, tasks: d.tasks.filter((t) => t.id !== id) }))
+    api.deleteTask(id).catch((e) => setError(String(e?.message ?? e)))
+  }, [])
 
   /* plan actions */
-  const addPlan = (title: string, time: string, note: string) => {
-    const p: Plan = { id: uid(), title, time, note, createdAt: Date.now() }
-    updateDay((d) => ({
-      ...d,
-      plans: [...d.plans, p].sort((a, b) => a.time.localeCompare(b.time)),
-    }))
-  }
-  const removePlan = (id: string) =>
-    updateDay((d) => ({ ...d, plans: d.plans.filter((p) => p.id !== id) }))
+  const addPlan = useCallback(
+    async (title: string, time: string, note: string) => {
+      try {
+        const p = await api.createPlan(activeDate, title, time, note)
+        setDay((d) => ({
+          ...d,
+          plans: [...d.plans, p].sort((a, b) => a.time.localeCompare(b.time)),
+        }))
+      } catch (e) {
+        setError(String((e as Error)?.message ?? e))
+      }
+    },
+    [activeDate],
+  )
+  const removePlan = useCallback((id: string) => {
+    setDay((d) => ({ ...d, plans: d.plans.filter((p) => p.id !== id) }))
+    api.deletePlan(id).catch((e) => setError(String(e?.message ?? e)))
+  }, [])
 
   /* stats */
   const stats = useMemo(() => {
@@ -98,7 +178,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar stats={stats} profile={profile} onName={(name) => setProfile({ name })} />
+      <Sidebar stats={stats} profile={profile} onName={updateName} />
 
       <main className="main">
         <header className="topbar">
@@ -107,7 +187,7 @@ export default function App() {
             <h1 className="page-title">Daily Dashboard</h1>
           </div>
           <div className="topbar-actions">
-            <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))} />
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <div className="date-nav">
               <button className="nav-btn" onClick={() => setActiveDate((k) => shiftDay(k, -1))} aria-label="Previous day">‹</button>
               <div className="date-pill">
@@ -123,8 +203,10 @@ export default function App() {
           </div>
         </header>
 
-        <section className="grid">
-          <GoalCard value={day.goal} onChange={(goal) => updateDay({ goal })} />
+        {error && <div className="banner banner--error">{error}</div>}
+
+        <section className="grid" aria-busy={loading}>
+          <GoalCard value={day.goal} onChange={saveGoal} />
           <TasksCard
             tasks={day.tasks}
             onAdd={addTask}
@@ -133,10 +215,7 @@ export default function App() {
             pct={stats.pct}
           />
           <PlansCard plans={day.plans} onAdd={addPlan} onRemove={removePlan} />
-          <ReflectionCard
-            value={day.reflection}
-            onChange={(reflection) => updateDay({ reflection })}
-          />
+          <ReflectionCard value={day.reflection} onChange={saveReflection} />
         </section>
       </main>
     </div>
@@ -246,7 +325,7 @@ function Sidebar({
         <Stat label="Planned items" value={stats.plans} />
       </div>
 
-      <p className="saved-note">Saved automatically to this browser</p>
+      <p className="saved-note">Synced to your Supabase workspace</p>
     </aside>
   )
 }
