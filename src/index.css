@@ -861,6 +861,35 @@ input::placeholder {
   border-radius: 16px;
   box-shadow: var(--shadow);
   overflow: hidden;
+  transition: max-width 0.2s ease, border-radius 0.2s ease;
+}
+
+/* Minimized: collapse to just the titlebar. The body is hidden but stays in
+   the DOM so state (draft, scroll) survives a restore. */
+.todo-window--minimized .todo-body {
+  display: none;
+}
+.todo-window--minimized .todo-titlebar {
+  border-bottom: none;
+}
+
+/* Maximized: fill the viewport and square off the corners, like a zoomed
+   macOS window. The screen wrapper stops centering so it can stretch. */
+.todo-screen--maximized {
+  padding: 0;
+  justify-content: flex-start;
+  gap: 0;
+}
+.todo-window--maximized {
+  max-width: none;
+  min-height: 100vh;
+  min-height: 100dvh;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+.todo-screen--maximized .todo-more {
+  display: none;
 }
 
 .todo-titlebar {
@@ -885,6 +914,49 @@ input::placeholder {
 .tl--r { background: #ff5f57; }
 .tl--y { background: #febc2e; }
 .tl--g { background: #28c840; }
+
+/* The yellow/green lights are real controls (minimize / maximize). Strip the
+   native button chrome so they read as dots, then reveal a glyph on hover or
+   keyboard focus — the macOS affordance. */
+button.tl {
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  line-height: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: filter 0.15s ease;
+}
+button.tl:hover {
+  filter: brightness(0.92);
+}
+button.tl::before {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.todo-lights:hover button.tl::before,
+button.tl:focus-visible::before {
+  opacity: 1;
+}
+button.tl:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* minimize = a minus; maximize = a plus that flips to a restore chevron */
+.tl--y::before { content: '\2212'; }        /* − */
+.tl--g::before { content: '\002B'; }         /* + */
+.todo-window--maximized .tl--g::before { content: '\2013'; }  /* – (restore) */
+.todo-window--minimized .tl--y::before { content: '\002B'; }  /* + (restore) */
 
 .todo-status {
   position: absolute;

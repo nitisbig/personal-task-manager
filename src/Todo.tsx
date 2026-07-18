@@ -16,6 +16,11 @@ import './index.css'
 
 const NEW_TASK_PRIORITY: Priority = 'medium'
 
+/* Window chrome state, mirroring the macOS traffic lights: the window can be
+   collapsed to just its titlebar (minimized) or stretched to fill the viewport
+   (maximized). The two are mutually exclusive — clicking one leaves the other. */
+type WindowState = 'normal' | 'minimized' | 'maximized'
+
 export default function Todo() {
   const today = todayKey()
   const [goal, setGoal] = useState('')
@@ -25,7 +30,17 @@ export default function Todo() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [windowState, setWindowState] = useState<WindowState>('normal')
   const liveRef = useRef<HTMLParagraphElement>(null)
+
+  const toggleMinimize = useCallback(
+    () => setWindowState((w) => (w === 'minimized' ? 'normal' : 'minimized')),
+    [],
+  )
+  const toggleMaximize = useCallback(
+    () => setWindowState((w) => (w === 'maximized' ? 'normal' : 'maximized')),
+    [],
+  )
 
   /* reflect the active theme onto <html> so tokens cascade (shared with dashboard) */
   useEffect(() => {
@@ -118,19 +133,35 @@ export default function Todo() {
   const allDone = tasks.length > 0 && remaining === 0
   const selected = fontFor(font)
   const target = goal.trim()
+  const minimized = windowState === 'minimized'
+  const maximized = windowState === 'maximized'
 
   return (
-    <div className="todo-screen">
+    <div className={`todo-screen todo-screen--${windowState}`}>
       <main
-        className="todo-window"
+        className={`todo-window todo-window--${windowState}`}
         aria-labelledby="todo-title"
         style={{ ['--todo-font' as string]: selected.stack }}
       >
         <div className="todo-titlebar">
-          <span className="todo-lights" aria-hidden="true">
-            <i className="tl tl--r" />
-            <i className="tl tl--y" />
-            <i className="tl tl--g" />
+          <span className="todo-lights">
+            <i className="tl tl--r" aria-hidden="true" />
+            <button
+              type="button"
+              className="tl tl--y"
+              onClick={toggleMinimize}
+              aria-pressed={minimized}
+              aria-label={minimized ? 'Restore window' : 'Minimize window'}
+              title={minimized ? 'Restore' : 'Minimize'}
+            />
+            <button
+              type="button"
+              className="tl tl--g"
+              onClick={toggleMaximize}
+              aria-pressed={maximized}
+              aria-label={maximized ? 'Restore window' : 'Maximize window'}
+              title={maximized ? 'Restore' : 'Maximize'}
+            />
           </span>
           <span className="todo-status" aria-hidden="true">
             {allDone ? 'Done.' : `${remaining} left`}
