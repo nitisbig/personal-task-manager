@@ -43,23 +43,26 @@ const toPlan = (r: PlanRow): Plan => ({
 export interface Settings {
   name: string
   theme: Theme
+  /** Font key for the home to-do (see src/fonts.ts). */
+  font: string
 }
 
 export async function fetchSettings(): Promise<Settings> {
   const { data, error } = await supabase
     .from('settings')
-    .select('name, theme')
+    .select('name, theme, todo_font')
     .eq('id', 1)
     .single()
   if (error) throw error
-  return { name: data.name, theme: data.theme as Theme }
+  return { name: data.name, theme: data.theme as Theme, font: data.todo_font }
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {
-  const { error } = await supabase
-    .from('settings')
-    .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq('id', 1)
+  /* map the app-facing `font` field onto the DB column `todo_font` */
+  const { font, ...rest } = patch
+  const row: Record<string, unknown> = { ...rest, updated_at: new Date().toISOString() }
+  if (font !== undefined) row.todo_font = font
+  const { error } = await supabase.from('settings').update(row).eq('id', 1)
   if (error) throw error
 }
 

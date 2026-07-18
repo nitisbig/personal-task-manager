@@ -898,15 +898,75 @@ input::placeholder {
 
 .todo-body {
   padding: 34px 40px 40px;
-  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Code', 'Courier New', monospace;
+  font-family: var(--todo-font, ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Code', 'Courier New', monospace);
+}
+
+.todo-head {
+  margin-bottom: 22px;
+}
+
+.todo-date {
+  margin: 0 0 6px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 .todo-heading {
-  margin: 0 0 24px;
-  font-size: 20px;
+  margin: 0;
+  font-size: 26px;
   font-weight: 700;
+  line-height: 1.2;
   letter-spacing: 0.2px;
   color: var(--text);
+  word-break: break-word;
+}
+
+/* Handwritten faces render small — scale the card's type up so they stay
+   comfortably legible. Only the .todo-font-driven text is affected. */
+.todo-body[data-hand] .todo-heading {
+  font-size: 40px;
+  font-weight: 700;
+}
+.todo-body[data-hand] .todo-text {
+  font-size: 22px;
+  line-height: 1.35;
+}
+.todo-body[data-hand] .todo-add-input {
+  font-size: 18px;
+}
+
+.todo-error {
+  margin: 0 0 16px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  color: var(--red);
+}
+
+/* font picker lives on the right of the titlebar */
+.todo-font-picker {
+  position: absolute;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+}
+.todo-font-select {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.todo-font-select:focus-visible {
+  border-color: var(--accent);
+  outline-offset: 0;
 }
 
 .todo-add {

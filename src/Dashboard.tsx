@@ -1,27 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { DayData, Plan, Priority, Profile, Task, Theme } from './types'
 import { emptyDay } from './types'
 import * as api from './lib/api'
-import { Link } from './Link'
+import { prettyDate, shiftDay, todayKey as getTodayKey } from './date'
 import './index.css'
 
 /* ---------- date helpers ---------- */
-
-function toKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-    d.getDate(),
-  ).padStart(2, '0')}`
-}
-
-function prettyDate(key: string): string {
-  const [y, m, d] = key.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -30,17 +15,10 @@ function greeting(): string {
   return 'Good evening'
 }
 
-function shiftDay(key: string, delta: number): string {
-  const [y, m, d] = key.split('-').map(Number)
-  const dt = new Date(y, m - 1, d)
-  dt.setDate(dt.getDate() + delta)
-  return toKey(dt)
-}
-
 /* ---------- app ---------- */
 
 export default function Dashboard() {
-  const todayKey = toKey(new Date())
+  const todayKey = getTodayKey()
   const [profile, setProfile] = useState<Profile>({ name: '' })
   const [theme, setTheme] = useState<Theme>('light')
   const [activeDate, setActiveDate] = useState(todayKey)

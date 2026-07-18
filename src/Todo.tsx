@@ -1,95 +1,131 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from './Link'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import type { Priority, Task, Theme } from './types'
+import * as api from './lib/api'
+import { prettyDate, todayKey } from './date'
+import { DEFAULT_FONT, FONTS, fontFor } from './fonts'
 import './index.css'
 
 /* ------------------------------------------------------------------
-   Minimal, highly-accessible to-do — the app's home route ("/").
-   One flat list you can check off and star. Persisted to
-   localStorage so it's instant and works offline, no backend.
+   Quick to-do — the app's home route ("/"). Bound to *today*: it shows
+   the current date, uses the day's Goal as its heading ("my target"),
+   and reads/writes the same daily_dashboard.tasks the full dashboard
+   uses, so both screens stay in sync. The list font is user-selectable
+   and persisted alongside the other settings.
    ------------------------------------------------------------------ */
 
-interface Item {
-  id: string
-  title: string
-  done: boolean
-  starred: boolean
-}
-
-const STORAGE_KEY = 'todo.items.v1'
-
-const seed = (): Item[] => [
-  { id: 'a', title: 'Schedule next project meeting', done: false, starred: false },
-  { id: 'b', title: 'Give feedback on Tom’s design proposal', done: false, starred: false },
-  { id: 'c', title: 'Coffee with Cecilia', done: false, starred: true },
-  { id: 'd', title: 'Write doc for upcoming tasks', done: false, starred: false },
-  { id: 'e', title: 'Sketch new landing page wireframe', done: false, starred: false },
-]
-
-function load(): Item[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return seed()
-    const parsed = JSON.parse(raw) as Item[]
-    return Array.isArray(parsed) ? parsed : seed()
-  } catch {
-    return seed()
-  }
-}
-
-function newId(): string {
-  return Math.random().toString(36).slice(2, 10)
-}
+const NEW_TASK_PRIORITY: Priority = 'medium'
 
 export default function Todo() {
-  const [items, setItems] = useState<Item[]>(load)
+  const today = todayKey()
+  const [goal, setGoal] = useState('')
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [theme, setTheme] = useState<Theme>('light')
+  const [font, setFont] = useState<string>(DEFAULT_FONT)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const liveRef = useRef<HTMLParagraphElement>(null)
 
-  /* persist on every change */
+  /* reflect the active theme onto <html> so tokens cascade (shared with dashboard) */
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
-    } catch {
-      /* storage full or blocked — stay in-memory, no crash */
-    }
-  }, [items])
+    document.documentElement.dataset.theme = theme
+  }, [theme])
 
-  const remaining = useMemo(() => items.filter((i) => !i.done).length, [items])
+  /* load settings (theme + font) once */
+  useEffect(() => {
+    let alive = true
+    api
+      .fetchSettings()
+      .then((s) => {
+        if (!alive) return
+        setTheme(s.theme)
+        setFont(s.font)
+      })
+      .catch((e) => alive && setError(String(e?.message ?? e)))
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  /* load today's goal + tasks */
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    api
+      .fetchDay(today)
+      .then((d) => {
+        if (!alive) return
+        setGoal(d.goal)
+        setTasks(d.tasks)
+        setError(null)
+      })
+      .catch((e) => alive && setError(String(e?.message ?? e)))
+      .finally(() => alive && setLoading(false))
+    return () => {
+      alive = false
+    }
+  }, [today])
+
+  const remaining = useMemo(() => tasks.filter((t) => !t.done).length, [tasks])
 
   const announce = (msg: string) => {
     if (liveRef.current) liveRef.current.textContent = msg
   }
 
-  const add = (e: React.FormEvent) => {
-    e.preventDefault()
-    const title = draft.trim()
-    if (!title) return
-    setItems((prev) => [...prev, { id: newId(), title, done: false, starred: false }])
-    setDraft('')
-    announce(`Added ${title}`)
-  }
+  const add = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      const title = draft.trim()
+      if (!title) return
+      setDraft('')
+      try {
+        const t = await api.createTask(today, title, NEW_TASK_PRIORITY)
+        setTasks((prev) => [t, ...prev])
+        announce(`Added ${title}`)
+      } catch (err) {
+        setError(String((err as Error)?.message ?? err))
+      }
+    },
+    [draft, today],
+  )
 
-  const toggleDone = (id: string) =>
-    setItems((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, done: !i.done } : i)),
-    )
+  const toggleDone = useCallback((id: string) => {
+    setTasks((prev) => {
+      const target = prev.find((t) => t.id === id)
+      if (target) {
+        api.setTaskDone(id, !target.done).catch((e) => setError(String(e?.message ?? e)))
+      }
+      return prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
+    })
+  }, [])
 
-  const toggleStar = (id: string) =>
-    setItems((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, starred: !i.starred } : i)),
-    )
+  const remove = useCallback(
+    (id: string) => {
+      const gone = tasks.find((t) => t.id === id)
+      setTasks((prev) => prev.filter((t) => t.id !== id))
+      api.deleteTask(id).catch((e) => setError(String(e?.message ?? e)))
+      if (gone) announce(`Removed ${gone.title}`)
+    },
+    [tasks],
+  )
 
-  const remove = (id: string) => {
-    const gone = items.find((i) => i.id === id)
-    setItems((prev) => prev.filter((i) => i.id !== id))
-    if (gone) announce(`Removed ${gone.title}`)
-  }
+  const changeFont = useCallback((key: string) => {
+    setFont(key)
+    api.saveSettings({ font: key }).catch((e) => setError(String(e?.message ?? e)))
+  }, [])
 
-  const allDone = items.length > 0 && remaining === 0
+  const allDone = tasks.length > 0 && remaining === 0
+  const selected = fontFor(font)
+  const target = goal.trim()
 
   return (
     <div className="todo-screen">
-      <main className="todo-window" aria-labelledby="todo-title">
+      <main
+        className="todo-window"
+        aria-labelledby="todo-title"
+        style={{ ['--todo-font' as string]: selected.stack }}
+      >
         <div className="todo-titlebar">
           <span className="todo-lights" aria-hidden="true">
             <i className="tl tl--r" />
@@ -99,12 +135,42 @@ export default function Todo() {
           <span className="todo-status" aria-hidden="true">
             {allDone ? 'Done.' : `${remaining} left`}
           </span>
+
+          <label className="todo-font-picker">
+            <span className="sr-only">To-do font</span>
+            <select
+              className="todo-font-select"
+              value={font}
+              onChange={(e) => changeFont(e.target.value)}
+              aria-label="To-do font"
+            >
+              <optgroup label="Handwritten">
+                {FONTS.filter((f) => f.handwritten).map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Other">
+                {FONTS.filter((f) => !f.handwritten).map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </label>
         </div>
 
-        <div className="todo-body">
-          <h1 id="todo-title" className="todo-heading">
-            Work
-          </h1>
+        <div className="todo-body" data-hand={selected.handwritten ? '' : undefined}>
+          <div className="todo-head">
+            <p className="todo-date">{prettyDate(today)}</p>
+            <h1 id="todo-title" className="todo-heading">
+              {target || 'Set your target for today'}
+            </h1>
+          </div>
+
+          {error && <p className="todo-error" role="alert">{error}</p>}
 
           <form className="todo-add" onSubmit={add}>
             <label htmlFor="todo-new" className="sr-only">
@@ -123,38 +189,30 @@ export default function Todo() {
             </button>
           </form>
 
-          <ul className="todo-list" role="list">
-            {items.length === 0 && (
+          <ul className="todo-list" role="list" aria-busy={loading}>
+            {!loading && tasks.length === 0 && (
               <li className="todo-empty">Nothing here yet — add your first task above.</li>
             )}
-            {items.map((item) => (
-              <li key={item.id} className={`todo-item${item.done ? ' is-done' : ''}`}>
+            {tasks.map((task) => (
+              <li key={task.id} className={`todo-item${task.done ? ' is-done' : ''}`}>
                 <input
                   type="checkbox"
                   className="todo-check"
-                  id={`chk-${item.id}`}
-                  checked={item.done}
-                  onChange={() => toggleDone(item.id)}
+                  id={`chk-${task.id}`}
+                  checked={task.done}
+                  onChange={() => toggleDone(task.id)}
                 />
-                <label className="todo-text" htmlFor={`chk-${item.id}`}>
-                  {item.title}
+                <label className="todo-text" htmlFor={`chk-${task.id}`}>
+                  {task.title}
                 </label>
 
-                <button
-                  type="button"
-                  className={`todo-star${item.starred ? ' is-on' : ''}`}
-                  aria-pressed={item.starred}
-                  aria-label={item.starred ? `Unstar ${item.title}` : `Star ${item.title}`}
-                  onClick={() => toggleStar(item.id)}
-                >
-                  <StarIcon filled={item.starred} />
-                </button>
+                <span className={`badge badge--${task.priority}`}>{task.priority}</span>
 
                 <button
                   type="button"
                   className="todo-del"
-                  aria-label={`Delete ${item.title}`}
-                  onClick={() => remove(item.id)}
+                  aria-label={`Delete ${task.title}`}
+                  onClick={() => remove(task.id)}
                 >
                   ×
                 </button>
@@ -170,23 +228,5 @@ export default function Todo() {
         Open full dashboard →
       </Link>
     </div>
-  )
-}
-
-function StarIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill={filled ? 'currentColor' : 'none'}
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 17.3 6.2 20.6l1.1-6.5L2.5 9.5l6.5-1L12 2.5l3 6 6.5 1-4.8 4.6 1.1 6.5z" />
-    </svg>
   )
 }
