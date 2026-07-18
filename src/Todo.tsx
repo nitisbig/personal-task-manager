@@ -197,7 +197,7 @@ export default function Todo() {
           <div className="todo-head">
             <p className="todo-date">{prettyDate(today)}</p>
             <h1 id="todo-title" className="todo-heading">
-              {target || 'Set your target for today'}
+              {target || 'Great things to have today...'}
             </h1>
           </div>
 
@@ -212,7 +212,7 @@ export default function Todo() {
               className="todo-add-input"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Add a task…"
+              placeholder="I will do..."
               autoComplete="off"
             />
             <button className="todo-add-btn" type="submit" disabled={!draft.trim()}>
